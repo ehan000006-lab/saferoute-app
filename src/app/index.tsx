@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 
-// 지금은 백엔드 대신 샘플 응답(mock)을 읽는다.
-// 나중에 POST /routes 응답으로 바꾸면 같은 구조라 아래 코드는 그대로 쓸 수 있다.
-import mockResponse from '../../assets/mock_routes_response.json';
+// 서버가 안 될 때 대신 보여줄 '저장된 서버 응답'.
+// Swagger(/docs)에서 POST /routes 를 실행해 받은 응답을 그대로 저장한 파일이다.
+import savedResponse from '../../assets/saved_routes_response.json';
 
 type RouteItem = {
   route_id: string;
@@ -21,9 +28,105 @@ type RoutesResponse = {
   routes: RouteItem[];
 };
 
+type RouteRequestBody = {
+  start_lat: number;
+  start_lon: number;
+  end_lat: number;
+  end_lon: number;
+  candidate_count: number;
+};
+
+// ---- routes api (start) ----
+const ROUTES_TIMEOUT_MS = 60000; // 서버가 도로망을 받아오느라 오래 걸릴 수 있어서 넉넉하게 60초
+
+function isNumberPair(p: unknown): p is [number, number] {
+  return (
+    Array.isArray(p) &&
+    p.length === 2 &&
+    typeof p[0] === 'number' &&
+    typeof p[1] === 'number'
+  );
+}
+
+// 서버 응답에서 화면이 읽는 필드가 모두 있는지 확인한다.
+// 필드 이름이 바뀌면 화면에 undefined 가 찍히는 대신 '형식이 달라요'로 실패 처리된다.
+function isValidRoute(r: unknown): r is RouteItem {
+  if (!r || typeof r !== 'object') return false;
+  const o = r as Record<string, unknown>;
+  return (
+    typeof o.route_id === 'string' &&
+    typeof o.length_m === 'number' &&
+    typeof o.cctv_sites === 'number' &&
+    typeof o.emergency_bell_sites === 'number' &&
+    (o.facility_reference_score === null ||
+      typeof o.facility_reference_score === 'number') &&
+    Array.isArray(o.coordinates) &&
+    o.coordinates.length >= 2 &&
+    o.coordinates.every(isNumberPair)
+  );
+}
+
+function isValidResponse(x: unknown): x is RoutesResponse {
+  if (!x || typeof x !== 'object') return false;
+  const routes = (x as { routes?: unknown }).routes;
+  return (
+    Array.isArray(routes) && routes.length > 0 && routes.every(isValidRoute)
+  );
+}
+
+async function requestRoutes(
+  baseUrl: string,
+  body: RouteRequestBody,
+  timeoutMs: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<RoutesResponse> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${baseUrl}/routes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json: unknown = await res.json();
+    if (!isValidResponse(json)) throw new Error('응답 형식이 달라요');
+    return json;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function errorReason(e: unknown): string {
+  if (e instanceof Error) {
+    return e.name === 'AbortError' ? '시간 초과' : e.message;
+  }
+  return '알 수 없는 오류';
+}
+// ---- routes api (end) ----
+
 // 백엔드(FastAPI) 주소. PC의 IP가 바뀌면 이 줄만 고치면 된다.
 // PowerShell에서 ipconfig → 'Wi-Fi' 항목의 IPv4 주소 + :8000
-const API_BASE_URL = 'http://192.168.219.111:8000';
+const API_BASE_URL = 'http://172.30.1.15:8000';
+
+// 지금은 출발·도착을 고정해서 요청한다. (저장된 응답도 같은 좌표로 받은 것)
+const ROUTE_REQUEST: RouteRequestBody = {
+  start_lat: 37.5346,
+  start_lon: 127.0005,
+  end_lat: 37.5394,
+  end_lon: 127.0062,
+  candidate_count: 3,
+};
+
+const SAVED: RoutesResponse | null = isValidResponse(savedResponse)
+  ? savedResponse
+  : null;
+
+type RouteSource =
+  | { kind: 'loading' }
+  | { kind: 'live' }
+  | { kind: 'saved'; reason: string };
 
 type ServerStatus =
   | { state: 'checking' }
@@ -37,8 +140,6 @@ type DrawnRoute = RouteItem & {
   color: string;
   path: LatLng[];
 };
-
-const data = mockResponse as unknown as RoutesResponse;
 
 // 안전/위험을 뜻하는 색(초록·빨강)은 쓰지 않고, 경로를 구분하는 용도로만 색을 쓴다.
 const ROUTE_COLORS = ['#2563EB', '#7C3AED', '#EA580C'];
@@ -57,10 +158,13 @@ function formatDistance(m: number): string {
 
 export default function HomeScreen() {
   const mapRef = useRef<MapView>(null);
+  const [mapReady, setMapReady] = useState(false);
   const [selected, setSelected] = useState(0);
+  const [data, setData] = useState<RoutesResponse | null>(SAVED);
+  const [source, setSource] = useState<RouteSource>({ kind: 'loading' });
   const [server, setServer] = useState<ServerStatus>({ state: 'checking' });
 
-  // 백엔드 /health 를 호출해서 연결 상태를 확인한다. (5초 안에 응답이 없으면 실패 처리)
+  // 백엔드 /health 로 연결 상태를 확인한다. (5초 안에 응답이 없으면 실패 처리)
   const checkServer = useCallback(async () => {
     setServer({ state: 'checking' });
     const controller = new AbortController();
@@ -83,30 +187,78 @@ export default function HomeScreen() {
     }
   }, []);
 
+  // 백엔드 /routes 를 호출한다. 실패하면 저장된 서버 응답을 보여준다.
+  const loadRoutes = useCallback(async () => {
+    setSource({ kind: 'loading' });
+    try {
+      const live = await requestRoutes(
+        API_BASE_URL,
+        ROUTE_REQUEST,
+        ROUTES_TIMEOUT_MS,
+      );
+      setData(live);
+      setSelected(0);
+      setSource({ kind: 'live' });
+    } catch (e) {
+      setData(SAVED);
+      setSelected(0);
+      setSource({ kind: 'saved', reason: errorReason(e) });
+    }
+  }, []);
+
   useEffect(() => {
     checkServer();
-  }, [checkServer]);
+    loadRoutes();
+  }, [checkServer, loadRoutes]);
 
   const routes = useMemo<DrawnRoute[]>(
     () =>
-      data.routes.map((r, i) => ({
+      (data?.routes ?? []).map((r, i) => ({
         ...r,
         index: i,
         color: ROUTE_COLORS[i % ROUTE_COLORS.length],
         path: toLatLng(r.coordinates),
       })),
-    [],
+    [data],
   );
 
   const allPoints = useMemo(() => routes.flatMap((r) => r.path), [routes]);
+
+  // 지도가 준비되었거나 경로가 바뀔 때마다 모든 경로가 보이도록 맞춘다.
+  useEffect(() => {
+    if (!mapReady || allPoints.length === 0) return;
+    mapRef.current?.fitToCoordinates(allPoints, {
+      edgePadding: { top: 120, right: 50, bottom: 340, left: 50 },
+      animated: true,
+    });
+  }, [mapReady, allPoints]);
 
   if (routes.length === 0) {
     return (
       <View style={styles.empty}>
         <Text style={styles.emptyText}>표시할 경로가 없어요.</Text>
+        <Text style={styles.emptySub}>
+          {source.kind === 'saved'
+            ? `서버 호출 실패(${source.reason}) · 저장된 응답도 없어요`
+            : '경로 요청 중…'}
+        </Text>
+        <Pressable
+          onPress={loadRoutes}
+          disabled={source.kind === 'loading'}
+          style={styles.retry}
+        >
+          <Text style={styles.retryText}>다시 요청</Text>
+        </Pressable>
       </View>
     );
   }
+
+  const sourceText =
+    source.kind === 'loading'
+      ? '경로 요청 중… (저장된 응답 표시 중)'
+      : source.kind === 'live'
+        ? '서버에서 받은 경로'
+        : `저장된 서버 응답 · 호출 실패(${source.reason}) · 눌러서 다시 요청`;
 
   const serverText =
     server.state === 'checking'
@@ -125,13 +277,6 @@ export default function HomeScreen() {
   const start = firstPath[0];
   const end = firstPath[firstPath.length - 1];
 
-  const fitAll = () => {
-    mapRef.current?.fitToCoordinates(allPoints, {
-      edgePadding: { top: 120, right: 50, bottom: 340, left: 50 },
-      animated: true,
-    });
-  };
-
   // 선택한 경로가 맨 위에 보이도록 마지막에 그린다.
   const drawOrder = [...routes].sort(
     (a, b) => Number(a.index === selected) - Number(b.index === selected),
@@ -143,12 +288,12 @@ export default function HomeScreen() {
         ref={mapRef}
         style={StyleSheet.absoluteFill}
         initialRegion={{
-          latitude: start.latitude,
-          longitude: start.longitude,
+          latitude: ROUTE_REQUEST.start_lat,
+          longitude: ROUTE_REQUEST.start_lon,
           latitudeDelta: 0.02,
           longitudeDelta: 0.02,
         }}
-        onMapReady={fitAll}
+        onMapReady={() => setMapReady(true)}
       >
         {drawOrder.map((r) => (
           <Polyline
@@ -167,9 +312,16 @@ export default function HomeScreen() {
       </MapView>
 
       <View style={styles.topArea} pointerEvents="box-none">
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>샘플 데이터 · 실제 경로 아님</Text>
-        </View>
+        <Pressable
+          style={styles.badge}
+          onPress={loadRoutes}
+          disabled={source.kind === 'loading'}
+        >
+          {source.kind === 'loading' && (
+            <ActivityIndicator size="small" color="#fff" />
+          )}
+          <Text style={styles.badgeText}>{sourceText}</Text>
+        </Pressable>
         <Pressable style={styles.serverChip} onPress={checkServer}>
           <View style={[styles.serverDot, { backgroundColor: serverColor }]} />
           <Text style={styles.badgeText}>{serverText}</Text>
@@ -230,8 +382,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#111',
+    gap: 8,
+    padding: 24,
   },
-  emptyText: { color: '#fff' },
+  emptyText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  emptySub: { color: '#9CA3AF', fontSize: 13, textAlign: 'center' },
+  retry: {
+    marginTop: 8,
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  retryText: { color: '#fff', fontWeight: '600' },
   topArea: {
     position: 'absolute',
     top: TOP_SPACE,
@@ -241,6 +404,10 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '92%',
     backgroundColor: 'rgba(0,0,0,0.65)',
     paddingHorizontal: 12,
     paddingVertical: 6,
