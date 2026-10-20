@@ -13,6 +13,11 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 // Swagger(/docs)에서 POST /routes 를 실행해 받은 응답을 그대로 저장한 파일이다.
 import savedResponse from '../../assets/saved_routes_response.json';
 
+type DistrictShare = {
+  gu_name: string;
+  share: number;
+};
+
 type RouteItem = {
   route_id: string;
   length_m: number;
@@ -20,6 +25,12 @@ type RouteItem = {
   cctv_sites: number;
   emergency_bell_sites: number;
   facility_reference_score: number | null;
+  // 백엔드 v0.3 에서 추가된 필드. 옛 응답(옛 저장본)에는 없을 수 있어서 모두 선택 항목이다.
+  streetlight_sites?: number;
+  final_safety_score?: number | null;
+  safety_rank?: number | null;
+  crime_risk_score?: number | null;
+  crime_risk_by_gu?: DistrictShare[];
 };
 
 type RoutesResponse = {
@@ -48,6 +59,16 @@ function isNumberPair(p: unknown): p is [number, number] {
   );
 }
 
+function isOptionalNumber(v: unknown): boolean {
+  return v === undefined || v === null || typeof v === 'number';
+}
+
+function isDistrictShare(d: unknown): d is DistrictShare {
+  if (!d || typeof d !== 'object') return false;
+  const o = d as Record<string, unknown>;
+  return typeof o.gu_name === 'string' && typeof o.share === 'number';
+}
+
 // 서버 응답에서 화면이 읽는 필드가 모두 있는지 확인한다.
 // 필드 이름이 바뀌면 화면에 undefined 가 찍히는 대신 '형식이 달라요'로 실패 처리된다.
 function isValidRoute(r: unknown): r is RouteItem {
@@ -62,7 +83,15 @@ function isValidRoute(r: unknown): r is RouteItem {
       typeof o.facility_reference_score === 'number') &&
     Array.isArray(o.coordinates) &&
     o.coordinates.length >= 2 &&
-    o.coordinates.every(isNumberPair)
+    o.coordinates.every(isNumberPair) &&
+    // 새로 추가된 필드는 없어도 되지만, 있다면 형식이 맞아야 한다.
+    isOptionalNumber(o.streetlight_sites) &&
+    isOptionalNumber(o.final_safety_score) &&
+    isOptionalNumber(o.safety_rank) &&
+    isOptionalNumber(o.crime_risk_score) &&
+    (o.crime_risk_by_gu === undefined ||
+      (Array.isArray(o.crime_risk_by_gu) &&
+        o.crime_risk_by_gu.every(isDistrictShare)))
   );
 }
 
@@ -72,6 +101,16 @@ function isValidResponse(x: unknown): x is RoutesResponse {
   return (
     Array.isArray(routes) && routes.length > 0 && routes.every(isValidRoute)
   );
+}
+
+// 응답 순서를 믿지 않고 safety_rank 순(1위 먼저)으로 정렬한다.
+// 순위가 없는 경로는 맨 뒤로 가고, 순위가 같거나 없으면 원래 순서를 지킨다.
+function orderByRank(routes: RouteItem[]): RouteItem[] {
+  const rankOf = (r: RouteItem) => r.safety_rank ?? Number.MAX_SAFE_INTEGER;
+  return routes
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => rankOf(a.r) - rankOf(b.r) || a.i - b.i)
+    .map(({ r }) => r);
 }
 
 async function requestRoutes(
@@ -106,9 +145,14 @@ function errorReason(e: unknown): string {
 }
 // ---- routes api (end) ----
 
-// 백엔드(FastAPI) 주소. PC의 IP가 바뀌면 이 줄만 고치면 된다.
-// PowerShell에서 ipconfig → 'Wi-Fi' 항목의 IPv4 주소 + :8000
-const API_BASE_URL = 'http://172.30.1.15:8000';
+// 백엔드(FastAPI) 주소.
+// 방법 1) 앱 폴더에 .env.local 파일을 만들고 한 줄을 적는다 (코드를 고치지 않아도 된다)
+//         EXPO_PUBLIC_SAFE_ROUTE_API_URL=http://PC의IP:8000
+//         (적은 뒤에는 Expo 서버를 껐다 다시 켜야 반영된다)
+// 방법 2) 파일이 없으면 아래 기본 주소를 쓴다. PC의 IP가 바뀌면 이 줄을 고치면 된다.
+//         PowerShell에서 ipconfig → 'Wi-Fi' 항목의 IPv4 주소 + :8000
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_SAFE_ROUTE_API_URL || 'http://172.20.10.4:8000';
 
 // 지금은 출발·도착을 고정해서 요청한다. (저장된 응답도 같은 좌표로 받은 것)
 const ROUTE_REQUEST: RouteRequestBody = {
@@ -154,6 +198,10 @@ function toLatLng(coords: [number, number][]): LatLng[] {
 
 function formatDistance(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(2)}km` : `${Math.round(m)}m`;
+}
+
+function formatScore(v: number | null | undefined): string {
+  return v == null ? '-' : v.toFixed(1);
 }
 
 export default function HomeScreen() {
@@ -211,9 +259,10 @@ export default function HomeScreen() {
     loadRoutes();
   }, [checkServer, loadRoutes]);
 
+  // 추천 순위(safety_rank) 순으로 정렬해서, 1위 경로가 항상 첫 카드·첫 색이 되게 한다.
   const routes = useMemo<DrawnRoute[]>(
     () =>
-      (data?.routes ?? []).map((r, i) => ({
+      orderByRank(data?.routes ?? []).map((r, i) => ({
         ...r,
         index: i,
         color: ROUTE_COLORS[i % ROUTE_COLORS.length],
@@ -228,7 +277,7 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!mapReady || allPoints.length === 0) return;
     mapRef.current?.fitToCoordinates(allPoints, {
-      edgePadding: { top: 120, right: 50, bottom: 340, left: 50 },
+      edgePadding: { top: 120, right: 50, bottom: 420, left: 50 },
       animated: true,
     });
   }, [mapReady, allPoints]);
@@ -336,11 +385,14 @@ export default function HomeScreen() {
         >
           {routes.map((r) => {
             const active = r.index === selected;
-            // 가로등은 데이터가 서울 전역을 덮지 못해 0이 "없음"을 뜻하지 않으므로 화면에 표시하지 않는다.
-            const score =
-              r.facility_reference_score != null
-                ? r.facility_reference_score.toFixed(1)
-                : '-';
+            const title =
+              r.safety_rank != null
+                ? `${r.safety_rank}위 · ${r.route_id}`
+                : r.route_id;
+            const guNames = (r.crime_risk_by_gu ?? [])
+              .slice(0, 2)
+              .map((g) => g.gu_name)
+              .join('·');
             return (
               <Pressable
                 key={r.route_id}
@@ -352,23 +404,39 @@ export default function HomeScreen() {
               >
                 <View style={styles.cardHeader}>
                   <View style={[styles.dot, { backgroundColor: r.color }]} />
-                  <Text style={styles.cardTitle}>{r.route_id}</Text>
+                  <Text style={styles.cardTitle}>{title}</Text>
                   <Text style={styles.cardDistance}>
                     {formatDistance(r.length_m)}
                   </Text>
                 </View>
-                <Text style={styles.cardLine}>CCTV {r.cctv_sites}곳</Text>
-                <Text style={styles.cardLine}>
-                  비상벨 {r.emergency_bell_sites}곳
+                <Text style={styles.cardScore}>
+                  안전 참고점수 {formatScore(r.final_safety_score)}
                 </Text>
-                <Text style={styles.cardScore}>시설 참고점수 {score}</Text>
+                <Text style={styles.cardLine}>
+                  시설 참고점수 {formatScore(r.facility_reference_score)}
+                </Text>
+                <Text style={styles.cardLine}>
+                  지역 범죄 위험 {formatScore(r.crime_risk_score)}
+                  {guNames ? ` (${guNames})` : ''}
+                </Text>
+                <Text style={styles.cardLine}>
+                  CCTV {r.cctv_sites}곳 · 비상벨 {r.emergency_bell_sites}곳
+                </Text>
+                {/* 가로등은 데이터가 서울 전역을 덮지 못해 0이 "없음"을 뜻하지 않는다.
+                    그래서 1곳 이상일 때만 '참고정보'로 보여주고 점수에는 쓰지 않는다. */}
+                {(r.streetlight_sites ?? 0) > 0 && (
+                  <Text style={styles.cardNote}>
+                    가로등 {r.streetlight_sites}곳 · 참고정보
+                  </Text>
+                )}
               </Pressable>
             );
           })}
         </ScrollView>
         <Text style={styles.footnote}>
-          시설 참고점수는 CCTV·비상벨 분포를 기준으로 한 참고 지표이며, 실제
-          안전을 보장하지 않아요.
+          안전 참고점수(임시 v1)는 공공데이터 기반 상대 비교값이며 실제 안전을
+          보장하지 않아요. 지역 범죄 위험은 지나는 자치구 통계를 길이 비율로
+          반영한 값이고, 높을수록 위험해요.
         </Text>
       </View>
     </View>
@@ -432,7 +500,7 @@ const styles = StyleSheet.create({
   },
   cardRow: { paddingHorizontal: 16, gap: 10 },
   card: {
-    width: 168,
+    width: 200,
     backgroundColor: '#fff',
     borderRadius: 14,
     borderWidth: 2,
@@ -447,8 +515,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginLeft: 'auto',
   },
+  cardScore: { color: '#111', fontSize: 15, fontWeight: '700', marginTop: 2 },
   cardLine: { color: '#222', fontSize: 13 },
-  cardScore: { color: '#111', fontSize: 13, fontWeight: '600', marginTop: 2 },
+  cardNote: { color: '#6B7280', fontSize: 12 },
   footnote: {
     color: '#fff',
     fontSize: 11,

@@ -1,6 +1,6 @@
 {
   "count": 3,
-  "notice": "시설 기준 점수는 여러 샘플 경로 분포를 기준으로 계산합니다. 최종 안전 참고 점수는 범죄 위험도 연결 및 가중치 검증 전까지 제공하지 않습니다.",
+  "notice": "범죄 위험도 연결과 시설 참고점수 통합을 완료했습니다. final_safety_score는 1차 검증용(v1)이며 실제 안전을 보장하지 않습니다. 가로등은 데이터 커버리지 한계로 점수에서 제외하고 참고정보로만 표시합니다.",
   "routes": [
     {
       "route_id": "R1",
@@ -269,24 +269,43 @@
       "emergency_bell_raw_units": 10,
       "emergency_bell_sites_per_km": 6.661,
       "safe_return_overlap_ratio": 0.0239,
-      "cctv_reference_score": 98.5,
-      "streetlight_reference_score": 94,
-      "emergency_bell_reference_score": 58.2,
-      "facility_reference_score": 83.5,
-      "final_safety_score": null,
-      "score_status": "FACILITY_CALIBRATED_CRIME_RISK_PENDING",
-      "crime_risk_score": 92,
+      "safe_return_reference_score": 2.4,
+      "cctv_reference_score": 100,
+      "streetlight_reference_score": null,
+      "streetlight_score_status": "DISPLAY_ONLY_INCOMPLETE_COVERAGE",
+      "emergency_bell_reference_score": 54.2,
+      "facility_score_weights": {
+        "cctv": 0.5625,
+        "emergency_bell": 0.4375,
+        "streetlight": 0
+      },
+      "facility_reference_score": 80,
+      "final_safety_score": 61.4,
+      "score_status": "PROVISIONAL_FINAL_SCORE_V1",
+      "crime_risk_score": 56.8,
+      "crime_risk_rank_score": 92,
       "crime_per_10k_avg": 164.04,
+      "crime_safety_score": 43.2,
       "crime_risk_coverage": 1,
+      "crime_score_method": "minmax_crime_per_10k_25gu",
       "crime_risk_by_gu": [
         {
           "sig_cd": "11030",
           "gu_name": "용산구",
           "length_m": 1500.2,
           "share": 1,
-          "risk_score": 92
+          "crime_per_10k": 164.04,
+          "crime_rate_reference_score": 56.8,
+          "legacy_rank_score": 92
         }
-      ]
+      ],
+      "final_score_weights": {
+        "facility": 0.55,
+        "crime_safety": 0.4,
+        "safe_return": 0.05
+      },
+      "final_score_version": "v1_provisional",
+      "safety_rank": 1
     },
     {
       "route_id": "R2",
@@ -544,24 +563,43 @@
       "emergency_bell_raw_units": 10,
       "emergency_bell_sites_per_km": 6.642,
       "safe_return_overlap_ratio": 0.0473,
-      "cctv_reference_score": 82.1,
-      "streetlight_reference_score": 92.5,
-      "emergency_bell_reference_score": 56.7,
-      "facility_reference_score": 75.3,
-      "final_safety_score": null,
-      "score_status": "FACILITY_CALIBRATED_CRIME_RISK_PENDING",
-      "crime_risk_score": 92,
+      "safe_return_reference_score": 4.7,
+      "cctv_reference_score": 83.3,
+      "streetlight_reference_score": null,
+      "streetlight_score_status": "DISPLAY_ONLY_INCOMPLETE_COVERAGE",
+      "emergency_bell_reference_score": 54.2,
+      "facility_score_weights": {
+        "cctv": 0.5625,
+        "emergency_bell": 0.4375,
+        "streetlight": 0
+      },
+      "facility_reference_score": 70.6,
+      "final_safety_score": 56.3,
+      "score_status": "PROVISIONAL_FINAL_SCORE_V1",
+      "crime_risk_score": 56.8,
+      "crime_risk_rank_score": 92,
       "crime_per_10k_avg": 164.04,
+      "crime_safety_score": 43.2,
       "crime_risk_coverage": 1,
+      "crime_score_method": "minmax_crime_per_10k_25gu",
       "crime_risk_by_gu": [
         {
           "sig_cd": "11030",
           "gu_name": "용산구",
           "length_m": 1504.5,
           "share": 1,
-          "risk_score": 92
+          "crime_per_10k": 164.04,
+          "crime_rate_reference_score": 56.8,
+          "legacy_rank_score": 92
         }
-      ]
+      ],
+      "final_score_weights": {
+        "facility": 0.55,
+        "crime_safety": 0.4,
+        "safe_return": 0.05
+      },
+      "final_score_version": "v1_provisional",
+      "safety_rank": 3
     },
     {
       "route_id": "R3",
@@ -814,24 +852,43 @@
       "emergency_bell_raw_units": 10,
       "emergency_bell_sites_per_km": 6.635,
       "safe_return_overlap_ratio": 0,
-      "cctv_reference_score": 97,
-      "streetlight_reference_score": 95.5,
-      "emergency_bell_reference_score": 55.2,
-      "facility_reference_score": 82.1,
-      "final_safety_score": null,
-      "score_status": "FACILITY_CALIBRATED_CRIME_RISK_PENDING",
-      "crime_risk_score": 92,
+      "safe_return_reference_score": 0,
+      "cctv_reference_score": 100,
+      "streetlight_reference_score": null,
+      "streetlight_score_status": "DISPLAY_ONLY_INCOMPLETE_COVERAGE",
+      "emergency_bell_reference_score": 50,
+      "facility_score_weights": {
+        "cctv": 0.5625,
+        "emergency_bell": 0.4375,
+        "streetlight": 0
+      },
+      "facility_reference_score": 78.1,
+      "final_safety_score": 60.2,
+      "score_status": "PROVISIONAL_FINAL_SCORE_V1",
+      "crime_risk_score": 56.8,
+      "crime_risk_rank_score": 92,
       "crime_per_10k_avg": 164.04,
+      "crime_safety_score": 43.2,
       "crime_risk_coverage": 1,
+      "crime_score_method": "minmax_crime_per_10k_25gu",
       "crime_risk_by_gu": [
         {
           "sig_cd": "11030",
           "gu_name": "용산구",
           "length_m": 1506.2,
           "share": 1,
-          "risk_score": 92
+          "crime_per_10k": 164.04,
+          "crime_rate_reference_score": 56.8,
+          "legacy_rank_score": 92
         }
-      ]
+      ],
+      "final_score_weights": {
+        "facility": 0.55,
+        "crime_safety": 0.4,
+        "safe_return": 0.05
+      },
+      "final_score_version": "v1_provisional",
+      "safety_rank": 2
     }
   ]
 }
