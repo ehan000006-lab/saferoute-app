@@ -1,6 +1,6 @@
 {
   "count": 3,
-  "notice": "범죄 위험도 연결과 시설 참고점수 통합을 완료했습니다. final_safety_score는 1차 검증용(v1)이며 실제 안전을 보장하지 않습니다. 가로등은 데이터 커버리지 한계로 점수에서 제외하고 참고정보로만 표시합니다.",
+  "notice": "범죄 위험도 연결과 시설 참고점수 통합을 완료했습니다. final_safety_score는 1차 검증용(v1)이며 실제 안전을 보장하지 않습니다. 가로등은 데이터 커버리지 한계로 점수에서 제외하고 참고정보로만 표시합니다. 저장된 v3 예시 응답에는 동일 경로 가중치 시나리오가 추가되었습니다. 실시간 계산값이 아닙니다.",
   "routes": [
     {
       "route_id": "R1",
@@ -305,7 +305,21 @@
         "safe_return": 0.05
       },
       "final_score_version": "v1_provisional",
-      "safety_rank": 1
+      "safety_rank": 1,
+      "scenario_scores": {
+        "baseline": {
+          "score": 61.4,
+          "rank": 1
+        },
+        "half": {
+          "score": 52.7,
+          "rank": 1
+        },
+        "none": {
+          "score": 44.1,
+          "rank": 2
+        }
+      }
     },
     {
       "route_id": "R2",
@@ -599,7 +613,21 @@
         "safe_return": 0.05
       },
       "final_score_version": "v1_provisional",
-      "safety_rank": 3
+      "safety_rank": 3,
+      "scenario_scores": {
+        "baseline": {
+          "score": 56.3,
+          "rank": 3
+        },
+        "half": {
+          "score": 50.3,
+          "rank": 3
+        },
+        "none": {
+          "score": 44.2,
+          "rank": 1
+        }
+      }
     },
     {
       "route_id": "R3",
@@ -888,7 +916,69 @@
         "safe_return": 0.05
       },
       "final_score_version": "v1_provisional",
-      "safety_rank": 2
+      "safety_rank": 2,
+      "scenario_scores": {
+        "baseline": {
+          "score": 60.2,
+          "rank": 2
+        },
+        "half": {
+          "score": 51.3,
+          "rank": 2
+        },
+        "none": {
+          "score": 42.4,
+          "rank": 3
+        }
+      }
     }
-  ]
+  ],
+  "weight_scenarios": [
+    {
+      "id": "baseline",
+      "label": "현재 기준",
+      "weights": {
+        "cctv": 0.309375,
+        "emergency_bell": 0.240625,
+        "crime_safety": 0.4,
+        "safe_return": 0.05
+      }
+    },
+    {
+      "id": "half",
+      "label": "CCTV 절반",
+      "weights": {
+        "cctv": 0.1546875,
+        "emergency_bell": 0.29452064,
+        "crime_safety": 0.48959276,
+        "safe_return": 0.0611991
+      }
+    },
+    {
+      "id": "none",
+      "label": "CCTV 제외",
+      "weights": {
+        "cctv": 0.0,
+        "emergency_bell": 0.34841629,
+        "crime_safety": 0.57918552,
+        "safe_return": 0.07239819
+      }
+    }
+  ],
+  "scenario_version": "cctv_sensitivity_v1",
+  "sensitivity_summary": {
+    "baseline_top_route_id": "R1",
+    "top_route_by_scenario": {
+      "baseline": "R1",
+      "half": "R1",
+      "none": "R2"
+    },
+    "top_route_changed": {
+      "baseline": false,
+      "half": false,
+      "none": true
+    },
+    "score_available": true,
+    "note": "경로 형상은 고정하고 가중치만 바꾼 상대 점수 민감도 분석. 실제 범죄 예방 효과나 최적 가중치 검증이 아닙니다."
+  }
 }
