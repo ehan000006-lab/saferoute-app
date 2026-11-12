@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -7,9 +8,8 @@ import {
   Text,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
 import type { MapPressEvent } from 'react-native-maps';
-import Constants from 'expo-constants';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 
 // 서버가 안 될 때 대신 보여줄 '저장된 서버 응답'. (기본 구간(용산)으로 받은 응답)
 // Swagger(/docs)에서 POST /routes 를 실행해 받은 응답을 그대로 저장한 파일이다.
@@ -54,7 +54,7 @@ type LatLng = { latitude: number; longitude: number };
 type Preset = { name: string; start: LatLng; end: LatLng };
 
 // ---- routes api (start) ----
-const ROUTES_TIMEOUT_MS = 60000; // 서버가 도로망을 받아오느라 오래 걸릴 수 있어서 넉넉하게 60초
+const ROUTES_TIMEOUT_MS = 120000; // 서버가 도로망을 받아오느라 오래 걸릴 수 있어서 넉넉하게 60초
 
 // 백엔드(route_engine.py)의 MAX_STRAIGHT_LINE_M 과 같은 값. 넘으면 서버가 400 에러를 낸다.
 const MAX_STRAIGHT_M = 5000;
@@ -295,7 +295,7 @@ async function requestRoutes(
 
 function errorReason(e: unknown): string {
   if (e instanceof Error) {
-    return e.name === 'AbortError' ? '시간 초과' : e.message;
+    return e.name === 'AbortError' || /cancel/i.test(e.message) ? '시간 초과' : e.message;
   }
   return '알 수 없는 오류';
 }
